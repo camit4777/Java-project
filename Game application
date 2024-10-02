@@ -1,0 +1,229 @@
+Quiz Game in Java using Spring Boot for the backend. It will include features like:
+
+Randomized questions.
+Keeping track of scores.
+Simple API to start and answer quizzes.
+1. Backend Setup: Spring Boot
+pom.xml (Dependencies)
+xml
+Copy code
+<dependencies>
+    <!-- Spring Boot Starter Web -->
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+
+    <!-- Spring Boot Starter Data JPA -->
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-data-jpa</artifactId>
+    </dependency>
+
+    <!-- H2 Database (for in-memory database during development) -->
+    <dependency>
+        <groupId>com.h2database</groupId>
+        <artifactId>h2</artifactId>
+        <scope>runtime</scope>
+    </dependency>
+</dependencies>
+2. Entity Layer
+Question.java (Entity class representing a quiz question)
+java
+Copy code
+@Entity
+public class Question {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    private String questionText;
+    private String option1;
+    private String option2;
+    private String option3;
+    private String option4;
+    private String correctAnswer;
+
+    // Getters and setters
+}
+PlayerScore.java (Entity class representing player scores)
+java
+Copy code
+@Entity
+public class PlayerScore {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    private String playerName;
+    private int score;
+
+    // Getters and setters
+}
+3. Repository Layer
+QuestionRepository.java
+java
+Copy code
+@Repository
+public interface QuestionRepository extends JpaRepository<Question, Long> {
+}
+PlayerScoreRepository.java
+java
+Copy code
+@Repository
+public interface PlayerScoreRepository extends JpaRepository<PlayerScore, Long> {
+    List<PlayerScore> findByPlayerName(String playerName);
+}
+4. Service Layer
+QuizService.java
+java
+Copy code
+@Service
+public class QuizService {
+    @Autowired
+    private QuestionRepository questionRepository;
+
+    @Autowired
+    private PlayerScoreRepository playerScoreRepository;
+
+    public List<Question> getAllQuestions() {
+        return questionRepository.findAll();
+    }
+
+    public Optional<Question> getQuestionById(Long id) {
+        return questionRepository.findById(id);
+    }
+
+    public PlayerScore submitAnswer(String playerName, Long questionId, String answer) {
+        Question question = questionRepository.findById(questionId).orElseThrow(() -> new RuntimeException("Question not found"));
+        PlayerScore playerScore = playerScoreRepository.findByPlayerName(playerName)
+            .stream()
+            .findFirst()
+            .orElse(new PlayerScore());
+
+        if (question.getCorrectAnswer().equalsIgnoreCase(answer)) {
+            playerScore.setScore(playerScore.getScore() + 1);
+        }
+        playerScore.setPlayerName(playerName);
+        return playerScoreRepository.save(playerScore);
+    }
+
+    public List<PlayerScore> getPlayerScores(String playerName) {
+        return playerScoreRepository.findByPlayerName(playerName);
+    }
+}
+5. Controller Layer
+QuizController.java
+java
+Copy code
+@RestController
+@RequestMapping("/api/quiz")
+public class QuizController {
+
+    @Autowired
+    private QuizService quizService;
+
+    @GetMapping("/questions")
+    public List<Question> getQuestions() {
+        return quizService.getAllQuestions();
+    }
+
+    @GetMapping("/question/{id}")
+    public ResponseEntity<Question> getQuestionById(@PathVariable Long id) {
+        return quizService.getQuestionById(id)
+            .map(ResponseEntity::ok)
+            .orElse(ResponseEntity.notFound().build());
+    }
+
+    @PostMapping("/submit")
+    public ResponseEntity<PlayerScore> submitAnswer(@RequestParam String playerName, 
+                                                    @RequestParam Long questionId, 
+                                                    @RequestParam String answer) {
+        return ResponseEntity.ok(quizService.submitAnswer(playerName, questionId, answer));
+    }
+
+    @GetMapping("/scores")
+    public List<PlayerScore> getScores(@RequestParam String playerName) {
+        return quizService.getPlayerScores(playerName);
+    }
+}
+6. Database Setup
+data.sql (Sample data for questions)
+sql
+Copy code
+INSERT INTO question (question_text, option1, option2, option3, option4, correct_answer) VALUES
+('What is the capital of France?', 'Paris', 'Berlin', 'London', 'Rome', 'Paris'),
+('Who developed the theory of relativity?', 'Isaac Newton', 'Albert Einstein', 'Galileo Galilei', 'Nikola Tesla', 'Albert Einstein'),
+('What is the largest planet in our solar system?', 'Mars', 'Earth', 'Jupiter', 'Saturn', 'Jupiter');
+7. application.properties
+properties
+Copy code
+# H2 in-memory database configuration
+spring.datasource.url=jdbc:h2:mem:quizdb
+spring.datasource.driverClassName=org.h2.Driver
+spring.datasource.username=sa
+spring.datasource.password=password
+spring.h2.console.enabled=true
+spring.jpa.database-platform=org.hibernate.dialect.H2Dialect
+spring.jpa.hibernate.ddl-auto=update
+8. Frontend Example (Using HTML and JavaScript)
+For simplicity, we can create a static HTML frontend that interacts with the REST APIs:
+
+index.html (Simple UI to fetch questions and submit answers)
+html
+Copy code
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Quiz Game</title>
+</head>
+<body>
+    <h1>Quiz Game</h1>
+    <div id="quiz-container">
+        <!-- Quiz questions will appear here -->
+    </div>
+    <script>
+        const playerName = prompt("Enter your name:");
+        let questionId;
+
+        // Fetch and display a random question
+        fetch('/api/quiz/questions')
+            .then(response => response.json())
+            .then(questions => {
+                const randomQuestion = questions[Math.floor(Math.random() * questions.length)];
+                questionId = randomQuestion.id;
+                const quizContainer = document.getElementById('quiz-container');
+                quizContainer.innerHTML = `
+                    <p>${randomQuestion.questionText}</p>
+                    <button onclick="submitAnswer('${randomQuestion.option1}')">${randomQuestion.option1}</button>
+                    <button onclick="submitAnswer('${randomQuestion.option2}')">${randomQuestion.option2}</button>
+                    <button onclick="submitAnswer('${randomQuestion.option3}')">${randomQuestion.option3}</button>
+                    <button onclick="submitAnswer('${randomQuestion.option4}')">${randomQuestion.option4}</button>
+                `;
+            });
+
+        // Submit answer
+        function submitAnswer(answer) {
+            fetch(`/api/quiz/submit?playerName=${playerName}&questionId=${questionId}&answer=${answer}`, { method: 'POST' })
+                .then(response => response.json())
+                .then(data => {
+                    alert(`Your current score: ${data.score}`);
+                    location.reload(); // Reload to get another question
+                });
+        }
+    </script>
+</body>
+</html>
+9. How to Run the Project
+Clone the project.
+Add the above code in the corresponding files.
+Run the Spring Boot application:
+bash
+Copy code
+mvn spring-boot:run
+Access the H2 database at http://localhost:8080/h2-console if needed.
+Open index.html in your browser and play the quiz!
+This setup provides a fully functional quiz game backend and a simple frontend interface. You can further enhance it by adding features like:
+
+Timer for each question.
+A leaderboard.
+More question categories.
