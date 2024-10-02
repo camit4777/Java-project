@@ -1,1 +1,266 @@
+-commerce Website Project
+Tech Stack:
 
+Backend: Java (Spring Boot)
+Frontend: React.js
+Database: MySQL/PostgreSQL
+Payment Gateway: Stripe/PayPal API
+Authentication: Spring Security with JWT
+Deployment: AWS/Heroku
+Features
+User Authentication:
+
+Signup/Login functionality with JWT for session management.
+Role-based access control (Admin, User).
+Product Catalog:
+
+CRUD operations for products (Admin only).
+Search and filter products by categories, price, etc.
+Shopping Cart:
+
+Add, remove, and update items in the cart.
+Guest/Logged-in users can manage their cart.
+Payment Integration:
+
+Integration with Stripe/PayPal for secure payments.
+Order confirmation after payment success.
+Order Management:
+
+Track order history and current status (User).
+Manage orders (Admin).
+Deployment:
+
+CI/CD pipeline setup on AWS or Heroku.
+Let me know if you need more details on any feature or specific code snippets!
+
+
+
+
+
+
+You said:
+Write a full code of program
+ChatGPT said:
+ChatGPT
+Building a full e-commerce website involves many components, so I’ll break it down into key sections. We’ll focus on the most critical part: setting up the backend for user authentication, product management, and payment integration in Java with Spring Boot. Below is a simplified version of the backend setup.
+
+1. Backend Setup: Spring Boot
+pom.xml (for dependencies)
+xml
+Copy code
+<dependencies>
+    <!-- Spring Boot Starter Web -->
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    
+    <!-- Spring Boot Starter Security -->
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-security</artifactId>
+    </dependency>
+    
+    <!-- JWT Dependency -->
+    <dependency>
+        <groupId>io.jsonwebtoken</groupId>
+        <artifactId>jjwt</artifactId>
+        <version>0.9.1</version>
+    </dependency>
+
+    <!-- Spring Boot Starter Data JPA -->
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-data-jpa</artifactId>
+    </dependency>
+
+    <!-- MySQL Connector -->
+    <dependency>
+        <groupId>mysql</groupId>
+        <artifactId>mysql-connector-java</artifactId>
+    </dependency>
+    
+    <!-- Payment Integration (Stripe SDK) -->
+    <dependency>
+        <groupId>com.stripe</groupId>
+        <artifactId>stripe-java</artifactId>
+        <version>20.56.0</version>
+    </dependency>
+</dependencies>
+2. User Authentication
+SecurityConfig.java (JWT setup)
+java
+Copy code
+@Configuration
+@EnableWebSecurity
+public class SecurityConfig extends WebSecurityConfigurerAdapter {
+    @Autowired
+    private JwtTokenProvider jwtTokenProvider;
+
+    @Override
+    protected void configure(HttpSecurity http) throws Exception {
+        http.csrf().disable()
+            .authorizeRequests()
+            .antMatchers("/api/auth/**").permitAll()
+            .anyRequest().authenticated()
+            .and()
+            .apply(new JwtConfigurer(jwtTokenProvider));
+    }
+
+    @Override
+    protected void configure(AuthenticationManagerBuilder auth) throws Exception {
+        // Define authentication mechanisms here (DB, LDAP, etc.)
+    }
+
+    @Bean
+    @Override
+    public AuthenticationManager authenticationManagerBean() throws Exception {
+        return super.authenticationManagerBean();
+    }
+}
+JwtTokenProvider.java
+java
+Copy code
+@Component
+public class JwtTokenProvider {
+    private String secretKey = "secret";
+
+    public String createToken(String username, List<String> roles) {
+        Claims claims = Jwts.claims().setSubject(username);
+        claims.put("roles", roles);
+
+        Date now = new Date();
+        Date validity = new Date(now.getTime() + 3600000); // 1h token validity
+
+        return Jwts.builder()
+                .setClaims(claims)
+                .setIssuedAt(now)
+                .setExpiration(validity)
+                .signWith(SignatureAlgorithm.HS256, secretKey)
+                .compact();
+    }
+}
+AuthController.java
+java
+Copy code
+@RestController
+@RequestMapping("/api/auth")
+public class AuthController {
+    @Autowired
+    private AuthenticationManager authenticationManager;
+
+    @Autowired
+    private JwtTokenProvider jwtTokenProvider;
+
+    @PostMapping("/login")
+    public ResponseEntity<?> login(@RequestBody AuthRequest request) {
+        try {
+            Authentication authentication = authenticationManager.authenticate(
+                new UsernamePasswordAuthenticationToken(request.getUsername(), request.getPassword())
+            );
+            String token = jwtTokenProvider.createToken(authentication.getName(), Arrays.asList("ROLE_USER"));
+            return ResponseEntity.ok(new AuthResponse(token));
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body("Invalid credentials");
+        }
+    }
+}
+3. Product Management
+Product.java (Entity)
+java
+Copy code
+@Entity
+public class Product {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    private String name;
+    private String description;
+    private double price;
+
+    // Getters and setters
+}
+ProductRepository.java
+java
+Copy code
+@Repository
+public interface ProductRepository extends JpaRepository<Product, Long> {
+    List<Product> findByNameContaining(String name);
+}
+ProductController.java
+java
+Copy code
+@RestController
+@RequestMapping("/api/products")
+public class ProductController {
+    @Autowired
+    private ProductRepository productRepository;
+
+    @GetMapping
+    public List<Product> getAllProducts() {
+        return productRepository.findAll();
+    }
+
+    @PostMapping
+    @PreAuthorize("hasRole('ADMIN')")
+    public Product createProduct(@RequestBody Product product) {
+        return productRepository.save(product);
+    }
+
+    @DeleteMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    public void deleteProduct(@PathVariable Long id) {
+        productRepository.deleteById(id);
+    }
+}
+4. Payment Integration with Stripe
+StripeService.java
+java
+Copy code
+@Service
+public class StripeService {
+    @Autowired
+    private StripeProperties stripeProperties;
+
+    public String createPaymentIntent(double amount) {
+        Stripe.apiKey = stripeProperties.getSecretKey();
+
+        Map<String, Object> params = new HashMap<>();
+        params.put("amount", (int)(amount * 100)); // Convert to cents
+        params.put("currency", "usd");
+
+        try {
+            PaymentIntent intent = PaymentIntent.create(params);
+            return intent.getClientSecret();
+        } catch (StripeException e) {
+            throw new RuntimeException("Stripe payment failed", e);
+        }
+    }
+}
+PaymentController.java
+java
+Copy code
+@RestController
+@RequestMapping("/api/payments")
+public class PaymentController {
+    @Autowired
+    private StripeService stripeService;
+
+    @PostMapping("/create-intent")
+    public ResponseEntity<?> createPaymentIntent(@RequestBody PaymentRequest request) {
+        String clientSecret = stripeService.createPaymentIntent(request.getAmount());
+        return ResponseEntity.ok(new PaymentResponse(clientSecret));
+    }
+}
+5. Database Configuration (application.properties)
+properties
+Copy code
+spring.datasource.url=jdbc:mysql://localhost:3306/ecommerce_db
+spring.datasource.username=root
+spring.datasource.password=root
+spring.jpa.hibernate.ddl-auto=update
+This setup handles:
+
+User Authentication (using JWT and Spring Security).
+Product Management (CRUD operations with role-based access).
+Stripe Payment Gateway integration.
